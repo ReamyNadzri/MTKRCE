@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kuih Recognition & Calories</title>
+    <style>
+        /* Basic styling - feel free to enhance */
+        body { font-family: sans-serif; line-height: 1.6; padding: 20px; background-color: #f4f4f4; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        .header { text-align: center; margin-bottom: 20px; }
+        .status { margin-bottom: 15px; padding: 10px; border-radius: 5px; }
+        .status-ok { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .status-warn { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+        .status-error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .upload-form { margin-bottom: 20px; border: 2px dashed #ddd; padding: 20px; text-align: center; border-radius: 5px; }
+        .results { margin-top: 20px; background: #e9ecef; padding: 15px; border-radius: 5px; }
+        .results img { max-width: 100%; height: auto; max-height: 300px; display: block; margin: 10px auto; border-radius: 5px; }
+        .feedback-section { margin-top: 15px; padding: 15px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; }
+        .feedback-buttons button { margin-right: 10px; padding: 8px 15px; cursor: pointer; border-radius: 4px; border: none; }
+        .feedback-correct { background-color: #28a745; color: white; }
+        .feedback-incorrect { background-color: #dc3545; color: white; }
+        .correction-section { display: none; margin-top: 10px; }
+        .correction-section select, .correction-section button { padding: 8px; margin-top: 5px; border-radius: 4px; border: 1px solid #ccc; }
+        .feedback-message { margin-top: 10px; padding: 10px; border-radius: 5px; display: none; }
+        .feedback-success { background-color: #d4edda; color: #155724; }
+        .feedback-error { background-color: #f8d7da; color: #721c24; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 10px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Kuih Recognition & Calorie Estimation</h1>
+            <p>Upload an image to identify a Malaysian Kuih</p>
+        </div>
+
+        {% if not model_loaded %}
+            <div class="status status-error">⚠️ Model not loaded. Prediction is unavailable.</div>
+        {% elif not db_connection_ok %}
+            <div class="status status-warn">⚠️ Database connection failed. Calorie lookup and feedback saving may not work.</div>
+        {% else %}
+            <div class="status status-ok">✅ System ready. Model and Database connected.</div>
+        {% endif %}
+
+        <div class="upload-section">
+            <form id="uploadForm" class="upload-form" method="post" action="{{ url_for('handle_predict') }}" enctype="multipart/form-data">
+                <input type="file" id="fileInput" name="file" accept=".png,.jpg,.jpeg,.gif,.bmp,.webp" required>
+                <br><br>
+                <button type="submit" {% if not model_loaded %}disabled{% endif %}>
+                    🔍 Identify Kuih
+                </button>
+            </form>
+            <div id="loading" class="hidden"><div class="spinner"></div>Analyzing...</div>
+        </div>
+
+        {% if error %}
+            <div class="status status-error">
+                <strong>Error:</strong> {{ error }}
+            </div>
+        {% endif %}
+
+        {% if kuih_name and success %}
+            <div class="results">
+                <h3>Prediction Results</h3>
+
+                {% if request_feedback %}
+                    <div class="status status-warn">
+                        Low confidence prediction. Your feedback is valuable!
+                    </div>
+                {% endif %}
+
+                {% if image_path %}
+                    <img src="{{ url_for('serve_uploaded_file', filename=image_path) }}" alt="Uploaded Kuih">
+                {% endif %}
+
+                <p><strong>Kuih Type:</strong> <span id="predictedKuih">{{ kuih_name }}</span></p>
+                <p><strong>Confidence:</strong> {{ confidence }}</p>
+                <p><strong>Estimated Calories:</strong> {{ calories }}</p>
+
+                <div class="feedback-section" id="feedbackSection">
+                    <h4>Is this prediction correct?</h4>
+                    <div class="feedback-buttons">
+                        <button class="feedback-correct" onclick="submitFeedback(true)">✅ Yes</button>
+                        <button class="feedback-incorrect" onclick="showCorrectionSection()">❌ No</button>
+                    </div>
+
+                    <div class="correction-section" id="correctionSection">
+                        <label for="actualKuihSelect">Select the correct kuih:</label><br>
+                        <select id="actualKuihSelect">
+                            <option value="">-- Select Correct Kuih --</option>
+                            {% for kuih in available_classes %}
+                                <option value="{{ kuih }}">{{ kuih }}</option>
+                            {% endfor %}
+                        </select>
+                        <br>
+                        <button onclick="submitCorrection()">Submit Correction</button>
+                    </div>
+
+                    <div class="feedback-message" id="feedbackMessage"></div>
+                </div>
+            </div>
+
+            <div id="hiddenData" style="display: none;">
+                <span id="imageFilename">{{ image_path }}</span>
+                <span id="predictedLabel">{{ kuih_name }}</span>
+            </div>
+        {% endif %}
+
+        <div class="feedback-stats" style="margin-top: 20px;">
+            <h4>Feedback Summary</h4>
+            <p>Total Feedback Received: {{ feedback_stats.total }}</p>
+            <p>User Agreement Rate: {{ "%.1f"|format(feedback_stats.accuracy) }}%</p>
+        </div>
+
+    </div>
+
+    <script>
+        const uploadForm = document.getElementById('uploadForm');
+        const loadingDiv = document.getElementById('loading');
+
+        uploadForm.addEventListener('submit', function() {
+            loadingDiv.classList.remove('hidden'); // Show spinner on submit
+        });
+
+        function showCorrectionSection() {
+            document.getElementById('correctionSection').style.display = 'block';
+        }
+
+        function showFeedbackMessage(message, isSuccess) {
+            const msgDiv = document.getElementById('feedbackMessage');
+            msgDiv.textContent = message;
+            msgDiv.className = `feedback-message ${isSuccess ? 'feedback-success' : 'feedback-error'}`;
+            msgDiv.style.display = 'block';
+            // Optionally hide the feedback buttons/section after submission
+            // document.getElementById('feedbackSection').style.display = 'none';
+        }
+
+        function submitFeedback(isCorrect) {
+            const predictedLabel = document.getElementById('predictedLabel').textContent;
+            const imageFilename = document.getElementById('imageFilename').textContent;
+
+            const feedbackData = {
+                predicted_label: predictedLabel,
+                is_correct: isCorrect,
+                image_path: imageFilename
+            };
+
+            fetch("{{ url_for('handle_feedback') }}", { // Use url_for for robustness
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(feedbackData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                showFeedbackMessage(data.message, data.success);
+                // Optionally disable further feedback for this image
+                document.getElementById('feedbackSection').style.opacity = '0.5'; // Visually indicate done
+                document.querySelectorAll('#feedbackSection button').forEach(btn => btn.disabled = true);
+            })
+            .catch(error => {
+                console.error('Error submitting feedback:', error);
+                showFeedbackMessage('Error submitting feedback.', false);
+            });
+        }
+
+        function submitCorrection() {
+            const predictedLabel = document.getElementById('predictedLabel').textContent;
+            const imageFilename = document.getElementById('imageFilename').textContent;
+            const actualLabel = document.getElementById('actualKuihSelect').value;
+
+            if (!actualLabel) {
+                showFeedbackMessage('Please select the correct kuih type.', false);
+                return;
+            }
+
+            const feedbackData = {
+                predicted_label: predictedLabel,
+                is_correct: false,
+                actual_label: actualLabel,
+                image_path: imageFilename
+            };
+
+             fetch("{{ url_for('handle_feedback') }}", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(feedbackData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                showFeedbackMessage(data.message, data.success);
+                 document.getElementById('feedbackSection').style.opacity = '0.5';
+                 document.querySelectorAll('#feedbackSection button, #feedbackSection select').forEach(el => el.disabled = true);
+            })
+            .catch(error => {
+                console.error('Error submitting correction:', error);
+                showFeedbackMessage('Error submitting correction.', false);
+            });
+        }
+    </script>
+</body>
+</html>
