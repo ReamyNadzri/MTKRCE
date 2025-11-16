@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kuih Recognition & Calories (InceptionV3)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        /* --- NEW: Yellow Canvas Theme --- */
+        :root{
+            --primary: #ffc107; /* Yellow */
+            --primary-dark: #e0a800; /* Darker Yellow */
+            --accent: #fd7e14; /* Orange */
+            --text-light: #212529; /* Dark Text */
+            --text-muted: #6c757d; /* Muted Dark Text */
+            --glass-bg: rgba(0,0,0,0.03); /* Very light bg for cards */
+            --glass-border: rgba(0,0,0,0.1); /* Light border */
+            --shadow-lg: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        *{box-sizing:border-box;margin:0;padding:0}
+        
+        html,body{
+            height:100%;
+            font-family:'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            overflow-x:hidden;
+            scroll-behavior: smooth;
+        }
+        
+        body{
+            /* Light yellow/white gradient background */
+            background: linear-gradient(135deg, #fffbeb 0%, #f8f9fa 100%);
+            position:relative;
+            color:var(--text-light); /* Changed to dark text */
+            -webkit-font-smoothing:antialiased;
+        }
+        
+        /* Background pattern (adjusted for light theme) */
+        body::before{
+            content:''; position:fixed; inset:0;
+            background-image: radial-gradient(circle at 20% 30%, rgba(255,193,7,0.03) 0%, transparent 50%), radial-gradient(circle at 80% 70%, rgba(253,126,20,0.04) 0%, transparent 50%), url('data:image/svg+xml,<svg width="60" height="60" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="kuih-pattern" x="0" y="0" width="60" height="60" patternUnits="userSpaceOnUse"><circle cx="15" cy="15" r="2" fill="rgba(0,0,0,0.02)"/><circle cx="45" cy="45" r="2" fill="rgba(0,0,0,0.02)"/><path d="M30,10 Q35,20 30,30 Q25,20 30,10" fill="rgba(0,0,0,0.01)"/></pattern></defs><rect width="60" height="60" fill="url(%23kuih-pattern)"/></svg>');
+            animation: backgroundShift 60s ease-in-out infinite; pointer-events:none; z-index:1;
+        }
+        @keyframes backgroundShift{ 0%, 100%{transform:translate(0,0) scale(1)} 50%{transform:translate(-20px,-20px) scale(1.05)} }
+        
+        /* Floating decorations (adjusted for light theme) */
+        .decoration{ position:fixed; border-radius:50%; opacity:0.06; pointer-events:none; z-index:2; animation:float 20s ease-in-out infinite; }
+        .decoration:nth-child(1){ width:200px;height:200px; background:radial-gradient(circle, var(--accent), transparent); top:10%;left:5%; animation-delay:0s; }
+        .decoration:nth-child(2){ width:150px;height:150px; background:radial-gradient(circle, var(--primary), transparent); bottom:15%;right:8%; animation-delay:5s; }
+        .decoration:nth-child(3){ width:180px;height:180px; background:radial-gradient(circle, rgba(0,0,0,0.05), transparent); top:50%;right:15%; animation-delay:10s; }
+        @keyframes float{ 0%, 100%{transform:translate(0,0) scale(1)} 50%{transform:translate(-20px,20px) scale(0.9)} }
+        
+        /* Main container */
+        .container{
+            position:relative; z-index:10; min-height:100vh;
+            display:flex; align-items:center; justify-content:center;
+            padding:40px 20px;
+            overflow: hidden;
+        }
+        
+        .panel{
+            width:100%; max-width:1100px;
+            background: #ffffff; /* Solid white background - "Canvas" */
+            border-radius:32px; border:1px solid var(--glass-border);
+            box-shadow:var(--shadow-lg), inset 0 1px 0 rgba(255,255,255,0.1);
+            animation:slideUp 0.8s ease-out;
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative; left: 0;
+        }
+        .panel.history-active { transform: translateX(-350px); }
+        @keyframes slideUp{ from{opacity:0;transform:translateY(30px)} to{opacity:1;transform:translateY(0)} }
+        
+        /* Header section */
+        .header{
+            background:linear-gradient(135deg, rgba(255,193,7,0.05), rgba(224,168,0,0.08)); /* Light yellow header */
+            padding:40px;
+            border-bottom:1px solid rgba(0,0,0,0.08);
+            position:relative; display: flex; justify-content: space-between; align-items: center;
+            border-top-left-radius: 32px; border-top-right-radius: 32px;
+        }
+        /* Header Pulse */
+        .header::before{
+            content:''; position:absolute; top:-50%; right:-10%; width:300px; height:300px;
+            background:radial-gradient(circle, rgba(253,126,20,0.1), transparent);
+            border-radius:50%; animation:pulse 8s ease-in-out infinite; pointer-events: none;
+        }
+        @keyframes pulse{ 0%, 100%{transform:scale(1);opacity:0.1} 50%{transform:scale(1.2);opacity:0.15} }
+
+        .brand{ display:flex; align-items:center; gap:20px; position:relative; z-index:2; }
+        .logo{
+            width:72px; height:72px; border-radius:20px;
+            background:linear-gradient(135deg, var(--primary), var(--primary-dark));
+            display:flex; align-items:center; justify-content:center;
+            font-size:2rem; font-weight:700; color:white;
+            box-shadow:0 10px 30px rgba(255,193,7,0.3), inset 0 1px 0 rgba(255,255,255,0.2);
+            transition:all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .logo:hover{ transform:translateY(-8px) rotate(5deg) scale(1.05); box-shadow:0 20px 50px rgba(255,193,7,0.5); }
+        h1{
+            font-family:'Playfair Display', serif; font-size:2.2rem; font-weight:700;
+            background:linear-gradient(135deg, #333, #b38600);
+            -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+            margin-bottom:8px; letter-spacing:-0.5px;
+        }
+        .subtitle{ color:var(--text-muted); font-size:1rem; font-weight:400; }
+        
+        /* Header Actions */
+        .header-actions { display: flex; gap: 15px; align-items: center; z-index: 3; }
+        .btn-history {
+            background: rgba(0,0,0,0.05); border: 1px solid var(--glass-border);
+            color: var(--text-light); padding: 10px 18px; border-radius: 12px;
+            cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px;
+            transition: all 0.3s ease; font-size: 1rem;
+        }
+        .btn-history:hover { background: rgba(0,0,0,0.08); transform: translateY(-2px); }
+        .menu-icon{
+            width: 44px; height: 44px; border-radius: 50%;
+            background: rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.08);
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.3s ease; font-size: 1.2rem; color: var(--text-light);
+        }
+        .menu-icon:hover{ background: rgba(0,0,0,0.1); transform: scale(1.1); }
+        
+        /* Content grid */
+        .content{ display:grid; grid-template-columns:1fr 380px; gap:32px; padding:40px; }
+        
+        /* Status badges */
+        .status{ padding:14px 18px; border-radius:16px; margin-bottom:20px; font-weight:500; font-size:0.92rem; display:flex; align-items:center; gap:10px; }
+        .status-ok{ background:rgba(40,167,69,0.1); border:1px solid rgba(40,167,69,0.2); color:#155724; }
+        .status-warn{ background:rgba(255,193,7,0.1); border:1px solid rgba(255,193,7,0.25); color:#856404; }
+        .status-error{ background:rgba(220,53,69,0.1); border:1px solid rgba(220,53,69,0.25); color:#721c24; }
+        
+        /* Upload section */
+        .upload-card{
+            background:rgba(0,0,0,0.02); border:2px dashed rgba(0,0,0,0.15);
+            border-radius:20px; padding:32px; text-align:center; transition:all 0.3s ease;
+            position:relative; overflow:hidden; cursor:pointer; min-height:220px;
+            display:flex; flex-direction:column; align-items:center; justify-content:center;
+        }
+        .upload-card:hover, .upload-card.drag-over{ border-color:var(--primary); background:rgba(255,193,7,0.05); transform:scale(1.02); }
+        .upload-text h3{ font-size:1.2rem; margin-bottom:8px; color:var(--text-light); }
+        .upload-text p { color: var(--text-muted); }
+        
+        .btn-primary{
+            margin-top:20px; padding:14px 32px; background:linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: #493b00; border:none; border-radius:12px; font-weight:600; font-size:1rem;
+            cursor:pointer; transition:all 0.3s ease; box-shadow:0 4px 15px rgba(255,193,7,0.3); width: 100%;
+        }
+        .btn-primary:hover{ transform:translateY(-2px); box-shadow:0 8px 25px rgba(255,193,7,0.5); }
+        .btn-primary:disabled{ opacity:0.5; cursor:not-allowed; transform:none; }
+        
+        /* Results section */
+        .results{ margin-top:24px; background:rgba(0,0,0,0.02); border:1px solid rgba(0,0,0,0.1); border-radius:20px; padding:24px; }
+        .results img{ width:100%; height:auto; border-radius:16px; margin:16px 0; box-shadow:0 8px 30px rgba(0,0,0,0.1); }
+        .result-item{ margin:12px 0; padding:12px; background:rgba(0,0,0,0.03); border-radius:12px; border-left:3px solid var(--primary); }
+        .result-item strong{ color:var(--accent); font-weight:600; }
+        
+        /* Calculator Section */
+        .calculator-section {
+            margin-top: 20px; padding: 20px; background: rgba(255, 193, 7, 0.05);
+            border-radius: 16px; border: 1px solid rgba(255, 193, 7, 0.1);
+        }
+        .calc-input-group { display: flex; align-items: center; gap: 10px; margin-top: 15px; flex-wrap: wrap; font-size: 1.05rem; }
+        .calc-input {
+            background: rgba(0,0,0,0.05); border: 1px solid var(--glass-border);
+            color: var(--text-light); padding: 10px 15px; border-radius: 10px; width: 80px; font-size: 1.1rem; text-align: center;
+        }
+        .calc-result { font-size: 1.4rem; font-weight: 700; color: var(--accent); }
+
+        /* Feedback buttons */
+        .feedback-buttons{ display:flex; gap:12px; margin-top:16px; }
+        .btn-feedback{ flex:1; padding:12px; border:none; border-radius:12px; font-weight:600; cursor:pointer; transition:all 0.3s ease; font-size:0.95rem; }
+        .btn-yes{ background:linear-gradient(135deg, #28a745, #20883a); color:white; }
+        .btn-no{ background:linear-gradient(135deg, #dc3545, #c82333); color:white; }
+
+        /* Sidebar cards */
+        .sidebar{ display:flex; flex-direction:column; gap:24px; }
+        .card{ background:rgba(255,255,255,0.6); border:1px solid var(--glass-border); border-radius:20px; padding:24px; transition:all 0.3s ease; }
+        .card:hover{ background:rgba(255,255,255,0.8); transform:translateY(-4px); box-shadow:0 12px 35px rgba(0,0,0,0.15); }
+        .card h3{ font-family:'Playfair Display', serif; color:var(--accent); margin-bottom:12px; font-size:1.3rem; }
+        .card p{ color:var(--text-muted); line-height:1.6; font-size:0.92rem; }
+        .divider{ height:1px; background:linear-gradient(90deg, transparent, rgba(0,0,0,0.1), transparent); margin:16px 0; }
+        .stats{ display:flex; gap:20px; margin-top:12px; }
+        .stat-item{ flex:1; text-align:center; padding:12px; background:rgba(0,0,0,0.03); border-radius:12px; }
+        .stat-value{ font-size:1.5rem; font-weight:700; color:var(--primary); display:block; }
+        .stat-label{ font-size:0.8rem; color:var(--text-muted); margin-top:4px; }
+
+        /* Identifiable Kuih List */
+        .kuih-list { display: flex; flex-wrap: wrap; gap: 8px; max-height: 300px; overflow-y: auto; padding-right: 5px; }
+        .kuih-tag { background: rgba(0,0,0,0.05); padding: 6px 12px; border-radius: 20px; font-size: 0.85rem; color: var(--text-muted); border: 1px solid var(--glass-border); }
+        .kuih-list::-webkit-scrollbar { width: 6px; }
+        .kuih-list::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 3px; }
+
+        /* Right-Side History Panel */
+        .history-panel {
+            position: absolute; top: 40px; right: 0;
+            width: 330px; height: calc(100vh - 80px);
+            background: rgba(253, 251, 245, 0.9); /* Lighter bg */
+            backdrop-filter: blur(20px);
+            border-radius: 32px 0 0 32px; border: 1px solid var(--glass-border); border-right: none;
+            padding: 30px;
+            transform: translateX(100%); transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow-y: auto; z-index: 9;
+        }
+        .history-panel.active { transform: translateX(0); right: 40px; }
+        .panel { z-index: 10; }
+        .history-item { padding: 15px; background: rgba(0,0,0,0.03); border-radius: 12px; margin-bottom: 12px; border: 1px solid var(--glass-border); }
+        .history-date { font-size: 0.75rem; color: var(--accent); margin-bottom: 5px; opacity: 0.8; }
+        .history-name { font-weight: 600; color: var(--text-light); }
+        .history-cal { font-size: 0.9rem; color: var(--text-muted); }
+        .close-history { position: absolute; top: 25px; right: 25px; background: none; border: none; color: var(--text-muted); font-size: 1.8rem; cursor: pointer; }
+
+        /* --- Gemini Galaxy Loader Styles (Light Theme) --- */
+        .gemini-loading { text-align:center; padding:20px 0; color:var(--text-muted); font-size:1rem; }
+        .galaxy-scene{
+            position:relative; width:100%; min-height:110px; display:flex;
+            flex-direction:column; align-items:center; justify-content:center;
+            gap:10px; overflow:visible; padding:8px 0;
+        }
+        .nebula{
+            position:absolute; inset:0; margin:auto; width:220px; height:80px; border-radius:50%;
+            background: radial-gradient(60% 60% at 30% 40%, rgba(253,126,20,0.1), transparent 25%),
+                        radial-gradient(50% 50% at 70% 60%, rgba(255,193,7,0.1), transparent 25%),
+                        linear-gradient(90deg, rgba(250,245,230,0.1), rgba(250,240,220,0.2));
+            filter: blur(10px); transform: scale(1.02); animation: nebulaShift 6s ease-in-out infinite; pointer-events:none;
+        }
+        @keyframes nebulaShift {
+            0%{transform: translateX(0) scale(1)} 50%{transform: translateX(-8px) scale(1.03)} 100%{transform: translateX(0) scale(1)}
+        }
+        .star{
+            position:absolute; width:4px; height:4px; background:rgba(0,0,0,0.4); border-radius:50%;
+            filter:blur(0.4px); opacity:0.6; animation: twinkle 2.8s infinite ease-in-out;
+        }
+        .s1{ top:18%; left:16%; animation-delay:0s } .s2{ top:8%; right:18%; animation-delay:0.6s }
+        .s3{ bottom:26%; left:24%; animation-delay:1.1s } .s4{ bottom:18%; right:28%; animation-delay:0.3s }
+        .s5{ top:44%; left:50%; animation-delay:1.6s }
+        @keyframes twinkle { 0%{ transform: scale(0.9); opacity:0.4 } 50%{ transform: scale(1.4); opacity:0.8 } 100%{ transform: scale(0.9); opacity:0.4 } }
+        .planet{
+            width:54px; height:54px; border-radius:50%;
+            background: radial-gradient(circle at 35% 30%, #fff 6%, rgba(255,255,255,0.12) 8%, rgba(255,193,7,0.9) 30%, rgba(224,168,0,0.85) 60%, rgba(30,20,10,0.2) 100%);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.2), 0 0 18px rgba(255,193,7,0.1);
+            position:relative; z-index:3; animation: planetRotate 4.5s linear infinite, planetPulse 3.6s ease-in-out infinite;
+            display:flex; align-items:center; justify-content:center; color:#493b00; font-weight:700; font-size:1.05rem;
+        }
+        @keyframes planetRotate { 0%{ transform: rotate(0deg) } 100%{ transform: rotate(360deg) } }
+        @keyframes planetPulse {
+            0%{ box-shadow: 0 8px 30px rgba(0,0,0,0.2) } 50%{ box-shadow: 0 16px 48px rgba(0,0,0,0.3) } 100%{ box-shadow: 0 8px 30px rgba(0,0,0,0.2) }
+        }
+        .orbit{ position:absolute; top:50%; left:50%; transform-origin:center center; z-index:2; pointer-events:none; }
+        .orbit-1{ width:120px; height:120px; margin-left:-60px; margin-top:-60px; animation: spin 6s linear infinite; opacity:0.9 }
+        .orbit-2{ width:160px; height:160px; margin-left:-80px; margin-top:-80px; animation: spin 10s linear reverse infinite; opacity:0.75 }
+        .orbit-3{ width:200px; height:200px; margin-left:-100px; margin-top:-100px; animation: spin 14s linear infinite; opacity:0.6 }
+        .orb{
+            position:absolute; left:50%; top:50%; width:8px; height:8px; margin-left:40px; margin-top:-4px;
+            background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(253,126,20,0.9));
+            border-radius:50%; box-shadow: 0 0 12px rgba(253,126,20,0.18); transform-origin: center;
+        }
+        @keyframes spin { 0%{ transform: rotate(0deg) } 100%{ transform: rotate(360deg) } }
+        .loader-text{ z-index:4; margin-top:6px; font-size:0.95rem; color:var(--text-muted); display:block; }
+        /* --- END GEMINI LOADER STYLES --- */
+
+        /* --- AGGRESSIVE MOBILE SCALING --- */
+        @media (max-width: 968px) {
+            .content{ grid-template-columns:1fr; }
+            .panel.history-active { transform: translateX(-100%); opacity: 0.3; }
+            .history-panel { width: 80%; right: 0; }
+        }
+
+        /* For Smartphones/Small Tablets */
+        @media (max-width: 640px) {
+            html { font-size: 14px; }
+            .container{ padding: 10px; }
+            .panel{ border-radius: 20px; }
+            .header{ padding: 20px; flex-direction: column; align-items: flex-start; gap: 15px; }
+            .header-actions { width: 100%; justify-content: space-between; }
+            .brand{ gap: 12px; }
+            .logo{ width: 50px; height: 50px; font-size: 1.5rem; border-radius: 14px; }
+            h1{ font-size: 1.6rem; }
+            .content{ padding: 20px; gap: 20px; }
+            .upload-card{ padding: 20px; min-height: 180px; }
+            .upload-card h3 { font-size: 1.1rem; }
+            .btn-primary{ padding: 12px 20px; font-size: 0.95rem; }
+            .history-panel { width: 100%; top: 0; height: 100vh; border-radius: 0; right: 0; padding: 20px; }
+            .history-panel.active { right: 0; }
+            .close-history { top: 15px; right: 15px; font-size: 2rem; padding: 10px; }
+            /* Restored Galaxy Mobile styles */
+            .nebula{ width:160px; height:60px; filter: blur(8px) }
+            .planet{ width:46px; height:46px; font-size:0.95rem }
+            .orbit-1{ width:100px; height:100px; margin-left:-50px; margin-top:-50px }
+            .orbit-2{ width:130px; height:130px; margin-left:-65px; margin-top:-65px }
+            .orbit-3{ width:160px; height:160px; margin-left:-80px; margin-top:-80px }
+            .loader-text{ font-size:0.9rem } .star{ width:3px; height:3px }
+        }
+
+        @keyframes fadeIn{ from{opacity:0} to{opacity:1} }
+        
+        /* CNN LOADER STYLES (Light Theme) */
+        .loading-text { font-weight: 500; font-size: 0.95rem; color: var(--primary-dark); }
+        .cnn-loader { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
+        .cnn-layer { border: 2px solid var(--glass-border); border-radius: 8px; background: rgba(0,0,0,0.02); opacity: 0.6; transform: scale(1); animation: cnn-flow 2.5s infinite ease-in-out; }
+        .cnn-input, .cnn-output { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
+        .cnn-conv { width: 20px; height: 35px; }
+        .cnn-pool { width: 15px; height: 25px; background: rgba(0,0,0,0.05); }
+        .cnn-fc { width: 20px; height: 35px; display: flex; flex-direction: column; justify-content: space-around; align-items: center; padding: 5px 0; }
+        .cnn-fc span { width: 6px; height: 6px; background: var(--text-muted); border-radius: 50%; }
+        .cnn-arrow { font-size: 1.2rem; color: var(--text-muted); opacity: 0.4; transform: scale(1); animation: cnn-flow 2.5s infinite ease-in-out; }
+        @keyframes cnn-flow { 0%, 100% { opacity: 0.4; transform: scale(1); } 50% { opacity: 1; transform: scale(1.05); border-color: var(--primary); } }
+        .cnn-anim-1 { animation-delay: 0s; } .cnn-anim-2 { animation-delay: 0.2s; } .cnn-anim-3 { animation-delay: 0.4s; }
+        .cnn-anim-4 { animation-delay: 0.6s; } .cnn-anim-5 { animation-delay: 0.8s; } .cnn-anim-6 { animation-delay: 1.0s; }
+        .cnn-anim-7 { animation-delay: 1.2s; } .cnn-anim-8 { animation-delay: 1.4s; } .cnn-anim-9 { animation-delay: 1.6s; } .cnn-anim-10 { animation-delay: 1.8s; }
+
+        #loading-overlay {
+            position: fixed; inset: 0; background: rgba(248, 249, 250, 0.6); backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px); z-index: 1000; display: none;
+            align-items: center; justify-content: center; animation: fadeIn 0.3s ease;
+        }
+        .loading-card {
+            background: #ffffff; border: 1px solid var(--glass-border); border-radius: 24px;
+            padding: 30px 40px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="decoration"></div><div class="decoration"></div><div class="decoration"></div>
+    
+    <div class="container">
+        <main class="panel" id="mainPanel">
+            <header class="header">
+                <div class="brand">
+                    <div class="logo">🥟</div>
+                    <div>
+                        <h1>Malaysian Traditional Kuih Recognition</h1>
+                        <p class="subtitle">Discover traditional Malaysian kuih and their nutritional values</p>
+                    </div>
+                </div>
+                <div class="header-actions">
+                    <button class="btn-history" onclick="toggleHistory()"><span>📜</span> History</button>
+                    <div class="menu-icon" onclick="window.location.href='/'" title="Reset App">🔄</div>
+                </div>
+            </header>
+            
+            <div class="content">
+                <section class="main-content">
+                    {% if error %}
+                        <div class="status status-error">{{ error }}</div>
+                    {% elif not model_loaded %}
+                        <div class="status status-error">⚠️ Model not loaded. Prediction is unavailable.</div>
+                    {% elif not db_connection_ok %}
+                        <div class="status status-warn">⚠️ Database connection failed. Calorie lookup and feedback saving may not work.</div>
+                    {% else %}
+                        <div class="status status-ok">✅ System ready. Model and Database connected.</div>
+                    {% endif %}
+                    
+                    <form id="uploadForm" method="post" action="/predict" enctype="multipart/form-data">
+                        <div class="upload-card" id="dropZone" onclick="document.getElementById('fileInput').click()">
+                            <div style="font-size:3rem;opacity:0.6;margin-bottom:16px; color: var(--text-muted);">📸</div>
+                            <div class="upload-text">
+                                <h3>Drop your kuih image here</h3>
+                                <p>or click to browse</p>
+                                <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 8px;">Supported formats: PNG, JPG, JPEG, WEBP</p>
+                            </div>
+                            <input type="file" id="fileInput" name="file" accept="image/*" capture="environment" hidden>
+                            <div id="fileName" style="margin-top:12px;padding:10px 16px;background:rgba(255,193,7,0.05);border:1px solid rgba(255,193,7,0.1);border-radius:10px;color:var(--text-light);font-size:0.9rem;display:none"></div>
+                        </div>
+                        <button type="submit" class="btn-primary" {% if not model_loaded %}disabled{% endif %}>🔍 Identify Kuih</button>
+                    </form>
+
+                    {% if kuih_name and success %}
+                    <div class="results" id="resultsSection">
+                        <h3 style="font-family:'Playfair Display',serif;color:var(--accent);margin-bottom:12px">Prediction Results</h3>
+                        {% if request_feedback %}<div class="status status-warn">Low confidence prediction. Your feedback is valuable!</div>{% endif %}
+                        <img src="{{ url_for('serve_uploaded_file', filename=image_path) }}" alt="Uploaded Kuih">
+                        
+                        <div class="result-item"><strong>Kuih Type:</strong> <span id="predictedKuih">{{ kuih_name }}</span></div>
+                        <div class="result-item"><strong>Confidence:</strong> {{ confidence }}</div>
+                        <div class="result-item"><strong>Estimated Calories:</strong> <span id="baseCalories">{{ calories }}</span> kcal / serving</div>
+                        {% if weight and weight != 'N/A' %}<div class="result-item"><strong>Weight:</strong> {{ weight }}g</div>{% endif %}
+
+                        <div class="calculator-section">
+                            <h4 style="color:var(--text-light)">🧮 Calorie Calculator</h4>
+                            <div class="calc-input-group">
+                                <span>I ate</span>
+                                <input type="number" id="pieceInput" class="calc-input" value="1" min="0" step="0.5" oninput="calculateTotal()">
+                                <span>pieces × {{ calories }} kcal =</span>
+                                <span class="calc-result" id="totalCalories">{{ calories }}</span>
+                                <span style="color:var(--accent)">kcal total</span>
+                            </div>
+                        </div>
+
+                        <div style="margin-top:20px">
+                            <h4 style="margin-bottom:12px;color:var(--text-light)">Is this prediction correct?</h4>
+                            <div class="feedback-buttons">
+                                <button class="btn-feedback btn-yes" onclick="submitFeedback(true)">✅ Yes, Correct</button>
+                                <button class="btn-feedback btn-no" onclick="document.getElementById('correctionSection').style.display='block'">❌ No, Incorrect</button>
+                            </div>
+                            <div id="correctionSection" style="display:none;margin-top:16px;padding:16px;background:rgba(0,0,0,0.03);border-radius:12px">
+                                <select id="actualKuihSelect" style="width:100%;padding:12px;border-radius:10px;background:rgba(0,0,0,0.05);color:var(--text-light);border:1px solid rgba(0,0,0,0.15);margin-bottom:12px;font-size:0.95rem">
+                                    <option value="">-- Select Correct Kuih --</option>
+                                    {% for k in available_classes %}<option value="{{k}}">{{k}}</option>{% endfor %}
+                                </select>
+                                <button onclick="submitCorrection()" class="btn-primary" style="margin-top:0">Submit Correction</button>
+                            </div>
+                            <div id="feedbackMessage" style="display:none;margin-top:16px;padding:14px;border-radius:12px;"></div>
+                        </div>
+                        <div id="hiddenData" style="display:none" data-kuih="{{ kuih_name }}" data-img="{{ image_path }}" data-cal="{{ calories }}"></div>
+                    </div>
+                    {% endif %}
+                </section>
+                
+                <aside class="sidebar">
+                    <div class="card">
+                        <h3>Quick Tips</h3>
+                        <p>For best results, upload clear, well-lit images with the kuih as the main focus. Avoid cluttered backgrounds.</p>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>Feedback Stats</h3>
+                        <div class="divider"></div>
+                        <div class="stats">
+                            <div class="stat-item"><span class="stat-value">{{ feedback_stats.total }}</span><span class="stat-label">Total</span></div>
+                            <div class="stat-item"><span class="stat-value">{{ "%.0f"|format(feedback_stats.accuracy) }}%</span><span class="stat-label">Accuracy</span></div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h3>Identifiable Kuih</h3>
+                        <div class="divider"></div>
+                        <div class="kuih-list">
+                            {% for kuih in available_classes %}
+                                <span class="kuih-tag">{{ kuih }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="card" id="gemini-card" style="display:none;">
+                        <h3>Gemini AI Insights ✨</h3>
+                        <div class="divider"></div>
+                        
+                        <div id="gemini-loading" class="gemini-loading" aria-live="polite">
+                            <div class="galaxy-scene" role="status" aria-hidden="false">
+                                <div class="nebula" aria-hidden="true"></div>
+                                <span class="star s1" aria-hidden="true"></span><span class="star s2" aria-hidden="true"></span>
+                                <span class="star s3" aria-hidden="true"></span><span class="star s4" aria-hidden="true"></span>
+                                <span class="star s5" aria-hidden="true"></span>
+                                <div class="planet" title="AI is thinking"></div>
+                                <div class="orbit orbit-1" aria-hidden="true"><div class="orb"></div></div>
+                                <div class="orbit orbit-2" aria-hidden="true"><div classs="orb"></div></div>
+                                <div class="orbit orbit-3" aria-hidden="true"><div class="orb"></div></div>
+                                <div class="loader-text">Analyzing with AI...</div>
+                            </div>
+                        </div>
+
+                        <div id="gemini-content" style="display:none">
+                            <div style="margin-bottom:15px">
+                                <strong style="color:var(--accent)">Est. Calories:</strong>
+                                <p id="ai-cal" style="color:var(--text-muted);margin-top:4px"></p>
+                            </div>
+                            <div style="margin-bottom:15px">
+                                <strong style="color:var(--accent)">Other Names:</strong>
+                                <p id="ai-names" style="color:var(--text-muted);margin-top:4px"></p>
+                            </div>
+                            <div style="margin-bottom:15px">
+                                <strong style="color:var(--accent)">Description:</strong>
+                                <p id="ai-desc" style="color:var(--text-muted);margin-top:4px;line-height:1.5"></p>
+                            </div>
+                            <div style="background:rgba(253,126,20,0.1);padding:12px;border-radius:10px;border-left:3px solid var(--accent)">
+                                <strong style="color:var(--accent)">Fun Fact:</strong>
+                                <span id="ai-fact" style="color:var(--text-light);display:block;margin-top:4px;line-height:1.5"></span>
+                            </div>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </main>
+
+        <div class="history-panel" id="historyPanel">
+            <button class="close-history" onclick="toggleHistory()">×</button>
+            <h2 style="font-family:'Playfair Display',serif; color:var(--accent); margin-bottom:20px; font-size:1.8rem">Scan History</h2>
+            <div id="historyList">
+                <div style="color:var(--text-muted);font-size:1rem">Loading history...</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="loading-overlay">
+        <div class="loading-card">
+            <div class="cnn-loader">
+                <div class="cnn-layer cnn-input cnn-anim-1">📸</div>
+                <div class="cnn-arrow cnn-anim-2">→</div>
+                <div class="cnn-layer cnn-conv cnn-anim-3"></div>
+                <div class="cnn-layer cnn-conv cnn-anim-4"></div>
+                <div class="cnn-arrow cnn-anim-5">→</div>
+                <div class="cnn-layer cnn-pool cnn-anim-6"></div>
+                <div class="cnn-arrow cnn-anim-7">→</div>
+                <div class="cnn-layer cnn-fc cnn-anim-8">
+                    <span></span><span></span><span></span>
+                </div>
+                <div class="cnn-arrow cnn-anim-9">→</div>
+                <div class="cnn-layer cnn-output cnn-anim-10">🧁</div>
+            </div>
+            <p class="loading-text">Analyzing your kuih...</p>
+        </div>
+    </div>
+
+    <script>
+        function toggleHistory() {
+            const panel = document.getElementById('mainPanel');
+            const history = document.getElementById('historyPanel');
+            const isActive = panel.classList.contains('history-active');
+            if (!isActive) {
+                panel.classList.add('history-active'); history.classList.add('active'); fetchHistory();
+            } else {
+                panel.classList.remove('history-active'); history.classList.remove('active');
+            }
+        }
+        async function fetchHistory() {
+            const list = document.getElementById('historyList');
+            try {
+                const res = await fetch('/api/history'); const data = await res.json();
+                if (data.length === 0) { list.innerHTML = '<div style="color:var(--text-muted)">No history yet.</div>'; return; }
+                list.innerHTML = data.map(item => `
+                    <div class="history-item">
+                        <div class="history-date">${new Date(item.timestamp).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</div>
+                        <div class="history-name">${item.kuih_name}</div>
+                        <div class="history-cal">${item.calories} kcal</div>
+                    </div>`).join('');
+            } catch (e) { list.innerHTML = '<div style="color:#721c24">Failed to load history.</div>'; }
+        }
+        function calculateTotal() {
+            const pieces = document.getElementById('pieceInput').value || 0;
+            const baseCal = parseInt(document.getElementById('hiddenData')?.getAttribute('data-cal'));
+            document.getElementById('totalCalories').textContent = isNaN(baseCal) ? "N/A" : Math.round(pieces * baseCal).toLocaleString();
+        }
+        const dropZone=document.getElementById('dropZone'), fileInput=document.getElementById('fileInput'), fileName=document.getElementById('fileName');
+        if(dropZone){
+            ['dragenter','dragover','dragleave','drop'].forEach(e=>{dropZone.addEventListener(e,ev=>{ev.preventDefault();ev.stopPropagation()})});
+            ['dragenter','dragover'].forEach(e=>dropZone.addEventListener(e,()=>dropZone.classList.add('drag-over')));
+            ['dragleave','drop'].forEach(e=>dropZone.addEventListener(e,()=>dropZone.classList.remove('drag-over')));
+            dropZone.addEventListener('drop',e=>{fileInput.files=e.dataTransfer.files;updateFileName()});
+            fileInput.addEventListener('change',updateFileName);
+        }
+        function updateFileName(){
+            if(!fileInput || !fileName) return;
+            if(fileInput.files.length > 0){
+                const name = fileInput.files[0].name;
+                const max = 30;
+                let displayName = name;
+                if(name.length > max){
+                    const dotIndex = name.lastIndexOf('.');
+                    const ext = dotIndex > 0 ? name.slice(dotIndex) : '';
+                    const avail = max - ext.length - 3;
+                    const base = avail > 0 ? name.slice(0, avail) : name.slice(0, max - 3);
+                    displayName = base + '...' + ext;
+                }
+                fileName.textContent = "Selected: " + displayName;
+                fileName.title = name;
+                fileName.style.display = 'inline-block';
+            } else {
+                fileName.style.display = 'none';
+            }
+        }
+        
+        const form = document.getElementById('uploadForm');
+        if (form) {
+            form.addEventListener('submit', (e) => {
+                if (fileInput.files.length > 0) {
+                    document.getElementById('loading-overlay').style.display = 'flex';
+                }
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded',()=>{
+            const hidden=document.getElementById('hiddenData');
+            if(hidden){ loadGemini(hidden.getAttribute('data-kuih')); document.getElementById('resultsSection').scrollIntoView({behavior:'smooth',block:'start'}); }
+        });
+        async function loadGemini(kuihName){
+            const card=document.getElementById('gemini-card'); if(!card)return; card.style.display='block';
+            try{
+                const res=await fetch('/gemini-info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kuih:kuihName})});
+                const data=await res.json();
+                document.getElementById('gemini-loading').style.display='none'; document.getElementById('gemini-content').style.display='block';
+                document.getElementById('ai-cal').textContent = data.estimatedcalories;
+                document.getElementById('ai-names').textContent = data.othersname;
+                document.getElementById('ai-desc').textContent = data.description;
+                document.getElementById('ai-fact').textContent = data.fun_fact;
+            }catch(e){ 
+                document.getElementById('gemini-loading').innerHTML = '<div style="color:#721c24">AI unavailable.</div>'; 
+            }
+        }
+        function showMsg(msg,s){
+            const el=document.getElementById('feedbackMessage'); el.textContent=msg; el.style.display='block';
+            el.style.background=s?'rgba(40,167,69,0.1)':'rgba(220,53,69,0.1)'; el.style.color=s?'#155724':'#721c24';
+            el.style.border=s?'1px solid rgba(40,167,69,0.2)':'1px solid rgba(220,53,69,0.2)';
+        }
+        function submitFeedback(c){sendFeedback(c,null)}
+        function submitCorrection(){const a=document.getElementById('actualKuihSelect').value; if(!a)return showMsg('Select a kuih type.',false); sendFeedback(false,a)}
+        function sendFeedback(c,a){
+            const h=document.getElementById('hiddenData');
+            fetch('/submit_feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({predicted_label:h.getAttribute('data-kuih'),image_path:h.getAttribute('data-img'),is_correct:c,actual_label:a})})
+            .then(r=>r.json()).then(d=>{showMsg(d.message,d.success);if(d.success&&!c)document.getElementById('correctionSection').style.display='none'});
+        }
+    </script>
+</body>
+</html>
