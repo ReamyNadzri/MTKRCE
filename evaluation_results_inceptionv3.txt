@@ -1,0 +1,21 @@
+Test Accuracy: 0.9450
+Test Loss: 0.1482
+
+--- Classification Report ---
+               precision    recall  f1-score   support
+
+         Akok       0.89      0.89      0.89         9
+Cek Mek Molek       1.00      1.00      1.00         4
+      Ketayap       1.00      1.00      1.00        16
+  Kole Kacang       1.00      0.70      0.82        10
+   Kuih Bakar       0.90      1.00      0.95         9
+   Kuih Lapis       1.00      1.00      1.00         9
+ Kuih Lompang       1.00      1.00      1.00        12
+ Kuih Qasidah       1.00      0.50      0.67         4
+    Onde-onde       1.00      1.00      1.00        14
+ Pulut Sekaya       0.71      1.00      0.83        10
+    Seri Muka       1.00      1.00      1.00        12
+
+     accuracy                           0.94       109
+    macro avg       0.95      0.92      0.92       109
+ weighted avg       0.96      0.94      0.94       109
